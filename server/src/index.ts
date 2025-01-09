@@ -10,9 +10,9 @@ app.get("/currencies", (c) => {
   return c.redirect("/json/currencies.json");
 });
 
-// app.get("/names", (c) => {
-//   return c.redirect("/json/names.json");
-// });
+app.get("/names", (c) => {
+  return c.redirect("/json/names.json");
+});
 
 app.get("/", (c) => {
   return c.text("Hello Hono!");
