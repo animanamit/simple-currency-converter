@@ -20,6 +20,7 @@ app.get("/", (c) => {
   return c.text("Hello Hono!");
 });
 
+// this should be the port that the client gets from .env file
 const port = 8000;
 console.log(`Server is running on http://localhost:${port}`);
 

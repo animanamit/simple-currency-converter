@@ -4,7 +4,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -13,7 +12,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -28,27 +26,76 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import useSWR from "swr";
-import { Button } from "@/components/ui/button";
+import { ChangeEvent, useEffect, useState } from "react";
 
 const formSchema = z.object({
   amount: z.number().positive().multipleOf(0.01),
   currency: z.string().length(3),
 });
 
+// must match the server's base URL
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+const ErrorComponent = ({ message }: { message: string }) => {
+  return (
+    <div>
+      <h1>{message}</h1>
+    </div>
+  );
+};
+
+const LoaderComponent = () => {
+  return <div>Loading...</div>;
+};
+
+const calculateExchangeRate = (
+  sourceCurrency: string = "",
+  targetCurrency: string = "",
+  exchangeRateData: { Abase: string; rates: { [key: string]: number } }
+) => {
+  const baseCurr = exchangeRateData.Abase;
+  const baseCurrencyRate = exchangeRateData.rates[baseCurr];
+
+  const exchangeRate =
+    (exchangeRateData.rates[targetCurrency] /
+      exchangeRateData.rates[sourceCurrency]) *
+    baseCurrencyRate;
+
+  return exchangeRate;
+};
 
 const fetcher = async (url: string) => {
   const response = await fetch(url);
-  const text = await response.text();
-  console.log("Response status:", response.status);
-  console.log("Response text:", text);
-  if (!response.ok) {
-    throw new Error("Network response was not ok");
-  }
-  return JSON.parse(text);
+  const data = await response.json();
+  const dataObj = Object.entries(data).map(([key, value]) => {
+    return {
+      abw: key,
+      name: value,
+    };
+  });
+  return dataObj;
 };
 
 const Converter = () => {
+  const [isForward, setIsForward] = useState<boolean>(true);
+  const [sourceCurrency, setSourceCurrency] = useState<string | undefined>("");
+  const [targetCurrency, setTargetCurrency] = useState<string | undefined>("");
+  const [exchangeRate, setExchangeRate] = useState<number>(1);
+  const [amount, setAmount] = useState<string>("1");
+
+  let sourceAmount;
+  let targetAmount;
+
+  if (isForward) {
+    sourceAmount = amount;
+    targetAmount = amount ? (Number(amount) * exchangeRate).toFixed(2) : 0;
+  }
+
+  if (!isForward) {
+    sourceAmount = amount ? (Number(amount) / exchangeRate).toFixed(2) : 0;
+    targetAmount = amount;
+  }
+
   const {
     data: names,
     error: namesError,
@@ -59,10 +106,41 @@ const Converter = () => {
     data: currencies,
     error: currenciesError,
     isLoading: isCurrenciesLoading,
-  } = useSWR(`${BASE_URL}/json/currencies.json`, fetcher);
+  } = useSWR(`${BASE_URL}/json/currencies.json`, (url) =>
+    fetch(url).then((res) => res.json())
+  );
 
-  console.log(names, namesError, isNamesLoading);
-  console.log(currencies, currenciesError, isCurrenciesLoading);
+  const handleChangeSourceAmount = (e: ChangeEvent<HTMLInputElement>) => {
+    setIsForward(true);
+    setAmount(e.target.value);
+  };
+
+  const handleChangeTargetAmount = (e: ChangeEvent<HTMLInputElement>) => {
+    setIsForward(false);
+    setAmount(e.target.value);
+  };
+
+  useEffect(() => {
+    if (names && currencies) {
+      if (!sourceCurrency) setSourceCurrency(names?.[0].abw);
+      if (!targetCurrency) setTargetCurrency(names?.[1].abw);
+      setExchangeRate(
+        calculateExchangeRate(
+          sourceCurrency || names?.[0].abw,
+          targetCurrency || names?.[1].abw,
+          currencies
+        )
+      );
+    }
+  }, [names, currencies, sourceCurrency, targetCurrency]);
+
+  if (namesError || currenciesError) {
+    return <ErrorComponent message="Error loading data" />;
+  }
+
+  if (isNamesLoading || isCurrenciesLoading) {
+    return <LoaderComponent />;
+  }
 
   return (
     <Card>
@@ -71,17 +149,33 @@ const Converter = () => {
         <CardDescription>Card Description</CardDescription>
       </CardHeader>
       <CardContent>
-        <CardRow />
-        <CardRow />
+        <CardRow
+          amount={sourceAmount}
+          handleChangeAmount={handleChangeSourceAmount}
+          selectedCurrency={sourceCurrency}
+          handleChangeCurrency={(value: string) => setSourceCurrency(value)}
+          currencyNames={names}
+        />
+        <CardRow
+          amount={targetAmount}
+          handleChangeAmount={handleChangeTargetAmount}
+          selectedCurrency={targetCurrency}
+          handleChangeCurrency={(value: string) => setTargetCurrency(value)}
+          currencyNames={names}
+        />
       </CardContent>
-      <CardFooter>
-        <Button>Submit</Button>
-      </CardFooter>
     </Card>
   );
 };
 
-const CardRow = () => {
+const CardRow = ({
+  amount,
+  handleChangeAmount,
+  selectedCurrency,
+  handleChangeCurrency,
+  currencyNames,
+}: // eslint-disable-next-line @typescript-eslint/no-explicit-any
+any) => {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -91,8 +185,6 @@ const CardRow = () => {
   });
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    // Do something with the form values.
-    // ✅ This will be type-safe and validated.
     console.log(values);
   }
 
@@ -108,13 +200,14 @@ const CardRow = () => {
                 <FormLabel>Amount</FormLabel>
                 <FormControl>
                   <Input
-                    placeholder="100"
+                    {...field}
+                    placeholder="0"
                     type="number"
                     pattern="[0-9]*"
-                    {...field}
+                    value={amount}
+                    onChange={handleChangeAmount}
                   />
                 </FormControl>
-                <FormDescription>Description</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -128,14 +221,22 @@ const CardRow = () => {
               <FormItem>
                 <FormLabel>Amount</FormLabel>
                 <FormControl>
-                  <Select {...field}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Theme" />
+                  <Select
+                    {...field}
+                    value={selectedCurrency}
+                    onValueChange={handleChangeCurrency}
+                  >
+                    <SelectTrigger className="w-[380px]">
+                      <SelectValue placeholder="Currency Name" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="light">Light</SelectItem>
-                      <SelectItem value="dark">Dark</SelectItem>
-                      <SelectItem value="system">System</SelectItem>
+                      {currencyNames?.map(
+                        (item: { name: string; abw: string }) => (
+                          <SelectItem key={item.abw} value={item.abw}>
+                            {item.name} ({item.abw})
+                          </SelectItem>
+                        )
+                      )}
                     </SelectContent>
                   </Select>
                 </FormControl>
