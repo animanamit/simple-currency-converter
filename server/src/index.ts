@@ -1,8 +1,10 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { cors } from "hono/cors";
 
 const app = new Hono();
+app.use(cors()); // Enable CORS for all routes
 
 app.use("/json/*", serveStatic({ root: "./src" }));
 
